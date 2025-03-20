@@ -1,1 +1,4 @@
 - This Repository is for the Simulation of the Original Conflict-Based Search Algorithm and the Enhanced Version that we implemented.
+- The Files that have a prefix filename "debug" means need improvements or experiment codes.
+- CBS_Final is a previous enhancement that last updated in March 12, 2025.
+- Comparisons file both fixed and random is just comparison simulation between the original cbs and enhanced cbs. 

@@ -1,31 +1,60 @@
 import heapq
 import time
+import random
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
 # -------------------- Global Parameters --------------------
-GRID_SIZE = 10  # Using a 10x10 grid for clarity
+GRID_SIZE = 10  # Grid dimensions
+NUM_AGENTS = 10  # Number of agents
+NUM_OBSTACLES = 0  # Number of obstacles (set to 0 for a free grid)
 
-# Global agent colors for consistent visualization
-AGENT_COLORS = ["red", "orange", "purple", "brown", "magenta",
-                "cyan", "blue", "green", "olive", "navy",
-                "lime", "teal", "gold", "silver", "maroon",
-                "indigo", "violet", "chartreuse", "coral", "turquoise",
-                "chocolate", "salmon", "plum", "orchid", "skyblue",
-                "khaki", "sienna", "peru", "slateblue", "pink"]
+# Global agent colors for visualization
+AGENT_COLORS = [
+    "red", "orange", "purple", "brown", "magenta",
+    "cyan", "blue", "green", "olive", "navy",
+    "lime", "teal", "gold", "silver", "maroon",
+    "indigo", "violet", "chartreuse", "coral", "turquoise",
+    "chocolate", "salmon", "plum", "orchid", "skyblue",
+    "khaki", "sienna", "peru", "slateblue", "pink"
+]
 
 # UI Constants
 START_MARKER_SIZE = 300
 GOAL_MARKER_SIZE = 300
 LABEL_FONT_SIZE = 12
-TITLE_FONT_SIZE = 14  # Title font size for each plot
+TITLE_FONT_SIZE = 14
 PATH_LINE_WIDTH = 2
 
-# Global counter for low-level A* calls in Enhanced CBS
+# Global counters and cache for Enhanced CBS
 A_STAR_CALLS_ENHANCED = 0
+GLOBAL_CACHE_ENHANCED = {}
 
 
-# -------------------- Basic Functions --------------------
+# ===========================
+#  RANDOM SCENARIO GENERATION
+# ===========================
+def generate_random_scenario(num_agents, grid_size, num_obstacles):
+    """
+    Generate a random scenario.
+    Returns:
+      - starts: list of start positions (tuples)
+      - goals: list of goal positions (tuples)
+      - obstacles: list of obstacle positions (tuples)
+    """
+    cells = [(x, y) for x in range(grid_size) for y in range(grid_size)]
+    if len(cells) < 2 * num_agents + num_obstacles:
+        raise ValueError("Too many agents and obstacles for the grid size.")
+    chosen = random.sample(cells, 2 * num_agents + num_obstacles)
+    starts = chosen[:num_agents]
+    goals = chosen[num_agents:2 * num_agents]
+    obstacles = chosen[2 * num_agents:]
+    return starts, goals, obstacles
+
+
+# ===========================
+#  COMMON FUNCTIONS
+# ===========================
 def heuristic(pos, goal):
     """Manhattan distance heuristic."""
     return abs(pos[0] - goal[0]) + abs(pos[1] - goal[1])
@@ -34,13 +63,15 @@ def heuristic(pos, goal):
 def get_neighbors(position):
     """Return valid neighbors (up, down, left, right)."""
     directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-    return [(position[0] + dx, position[1] + dy)
-            for dx, dy in directions
-            if 0 <= position[0] + dx < GRID_SIZE and 0 <= position[1] + dy < GRID_SIZE]
+    return [
+        (position[0] + dx, position[1] + dy)
+        for dx, dy in directions
+        if 0 <= position[0] + dx < GRID_SIZE and 0 <= position[1] + dy < GRID_SIZE
+    ]
 
 
 def reconstruct_path(came_from, current):
-    """Reconstruct the path from A*."""
+    """Reconstruct the path from A* search."""
     path = []
     while current in came_from:
         path.append(current)
@@ -52,7 +83,7 @@ def reconstruct_path(came_from, current):
 def detect_conflicts(paths):
     """
     Detect the first conflict among agents.
-    Returns (agent1, agent2, position, time) or None if no conflict exists.
+    Returns a tuple (agent1, agent2, position, time) or None if no conflict exists.
     """
     max_time = max(len(p) for p in paths) if paths else 0
     for t in range(max_time):
@@ -68,7 +99,7 @@ def detect_conflicts(paths):
 
 def build_conflict_avoidance_table(paths):
     """
-    Build a Conflict Avoidance Table (CAT): dict mapping time_step -> set of positions.
+    Build a Conflict Avoidance Table (CAT): a dictionary mapping time step -> set of positions.
     """
     cat = {}
     if not paths:
@@ -82,11 +113,62 @@ def build_conflict_avoidance_table(paths):
     return cat
 
 
+# ===========================
+#  ENHANCED CBS ALGORITHM
+# ===========================
+def a_star_enhanced(start, goal, obstacles, constraints, cat, other_agent_paths):
+    """
+    Low-level A* search with enhancements and caching for Enhanced CBS.
+    """
+    global A_STAR_CALLS_ENHANCED, GLOBAL_CACHE_ENHANCED
+    key = (start, goal, tuple(sorted(obstacles)), tuple(sorted(constraints)))
+    if key in GLOBAL_CACHE_ENHANCED:
+        return GLOBAL_CACHE_ENHANCED[key]
+    A_STAR_CALLS_ENHANCED += 1
+
+    open_list = []
+    start_f = heuristic(start, goal)
+    heapq.heappush(open_list, (start_f, 0, start, 0))
+    came_from = {}
+    g_cost = {start: 0}
+    closed_set = set()
+
+    while open_list:
+        f_val, curr_g, current, curr_collisions = heapq.heappop(open_list)
+        if current == goal:
+            full_path = reconstruct_path(came_from, current)
+            # Cache the full path and every subpath.
+            for i in range(len(full_path)):
+                sub_start = full_path[i]
+                sub_key = (sub_start, goal, tuple(sorted(obstacles)), tuple(sorted(constraints)))
+                GLOBAL_CACHE_ENHANCED[sub_key] = full_path[i:]
+            GLOBAL_CACHE_ENHANCED[key] = full_path
+            return full_path
+        if current in closed_set:
+            continue
+        closed_set.add(current)
+        next_g = curr_g + 1
+        for neighbor in get_neighbors(current):
+            if neighbor in obstacles:
+                continue
+            if any((cpos == neighbor and ctime == next_g) for (cpos, ctime) in constraints):
+                continue
+            next_collisions = curr_collisions
+            if next_g in cat and neighbor in cat[next_g]:
+                next_collisions += 1
+            cost_so_far = next_g + next_collisions * 2
+            f_new = cost_so_far + heuristic(neighbor, goal)
+            if (neighbor not in g_cost) or (cost_so_far < g_cost[neighbor]):
+                g_cost[neighbor] = cost_so_far
+                came_from[neighbor] = current
+                heapq.heappush(open_list, (f_new, next_g, neighbor, next_collisions))
+    GLOBAL_CACHE_ENHANCED[key] = []
+    return []
+
+
 def count_conflicts(paths):
     """
-    Count total number of conflicts across all agents' paths.
-    For each time step, for any cell occupied by more than one agent,
-    add (n-1) to the conflict count.
+    Count the total number of conflicts across all agent paths.
     """
     total_conflicts = 0
     max_time = max(len(p) for p in paths) if paths else 0
@@ -102,52 +184,10 @@ def count_conflicts(paths):
     return total_conflicts
 
 
-# -------------------- ENHANCED CBS WITHOUT CACHING & PRIORITIZATION --------------------
-def a_star_enhanced(start, goal, obstacles, constraints, cat):
-    """
-    A* search that respects per-agent constraints and uses a CAT to penalize collisions.
-    Caching is removed so that the search is computed from scratch each time.
-    """
-    global A_STAR_CALLS_ENHANCED
-    A_STAR_CALLS_ENHANCED += 1
-
-    open_list = []
-    heapq.heappush(open_list, (heuristic(start, goal), 0, start, 0))
-    came_from = {}
-    g_cost = {start: 0}
-    closed_set = set()
-
-    while open_list:
-        f_val, curr_g, current, curr_collisions = heapq.heappop(open_list)
-        if current == goal:
-            return reconstruct_path(came_from, current)
-        if current in closed_set:
-            continue
-        closed_set.add(current)
-        next_g = curr_g + 1
-        for neighbor in get_neighbors(current):
-            if neighbor in obstacles:
-                continue
-            if any((cpos == neighbor and ctime == next_g) for (cpos, ctime) in constraints):
-                continue
-            next_collisions = curr_collisions
-            if next_g in cat and neighbor in cat[next_g]:
-                next_collisions += 1
-            cost_so_far = next_g + next_collisions * 2
-            f_new = cost_so_far + heuristic(neighbor, goal)
-            if neighbor not in g_cost or cost_so_far < g_cost[neighbor]:
-                g_cost[neighbor] = cost_so_far
-                came_from[neighbor] = current
-                heapq.heappush(open_list, (f_new, next_g, neighbor, next_collisions))
-    return []
-
-
 class CBSNode_Enhanced:
     """
     A node in the CBS tree for Enhanced CBS.
-    Tie-breaking mechanism:
-      - Primary key: total cost (sum of path lengths)
-      - Secondary key: total conflict count (computed by count_conflicts)
+    Tie-breaking is based on the sum of path lengths and total conflicts.
     """
     __slots__ = ['constraints', 'paths', 'cost', 'conflict_count']
 
@@ -165,7 +205,7 @@ class CBSNode_Enhanced:
 
 def compute_paths_enhanced(agent_id, starts, goals, obstacles, constraints, solution_so_far):
     """
-    Recompute path for one agent using the CAT.
+    Recompute a path for one agent using the current solution and CAT.
     """
     other_paths = [p for i, p in enumerate(solution_so_far) if i != agent_id]
     cat = build_conflict_avoidance_table(other_paths)
@@ -174,15 +214,14 @@ def compute_paths_enhanced(agent_id, starts, goals, obstacles, constraints, solu
         goal=goals[agent_id],
         obstacles=obstacles,
         constraints=constraints[agent_id],
-        cat=cat
+        cat=cat,
+        other_agent_paths=other_paths
     )
 
 
 def cbs_enhanced(starts, goals, obstacles):
     """
-    Enhanced CBS (Priority + CAT) algorithm that uses only the tie-breaking mechanism.
-    The caching mechanism and prioritization for favored agents are removed.
-    In this version, when a conflict is detected, the algorithm branches for both agents in a fixed order.
+    The main Conflict-Based Search (CBS) algorithm for Enhanced CBS.
     """
     n_agents = len(starts)
     root_constraints = {i: [] for i in range(n_agents)}
@@ -212,36 +251,43 @@ def cbs_enhanced(starts, goals, obstacles):
             last_update = time.time()
         agent1, agent2, pos, t = conflict
 
-        # --- Branch for agent1 ---
+        # Advanced tie-breaking: favor the agent whose goal is closer to the conflict.
+        if heuristic(pos, goals[agent1]) <= heuristic(pos, goals[agent2]):
+            favored_agent, other_agent = agent1, agent2
+        else:
+            favored_agent, other_agent = agent2, agent1
+
+        # Branch for the other agent:
         child_constraints1 = {a: list(c) for a, c in current_node.constraints.items()}
-        child_constraints1[agent1].append((pos, t))
-        child_paths1 = list(current_node.paths)
-        new_path1 = compute_paths_enhanced(agent1, starts, goals, obstacles, child_constraints1, child_paths1)
-        if new_path1:
-            child_paths1[agent1] = new_path1
+        child_constraints1[other_agent].append((pos, t))
+        child_paths1 = current_node.paths[:]
+        new_path_other = compute_paths_enhanced(other_agent, starts, goals, obstacles, child_constraints1, child_paths1)
+        if new_path_other:
+            child_paths1[other_agent] = new_path_other
             heapq.heappush(open_list, CBSNode_Enhanced(child_constraints1, child_paths1))
 
-        # --- Branch for agent2 ---
+        # Branch for the favored agent:
         child_constraints2 = {a: list(c) for a, c in current_node.constraints.items()}
-        child_constraints2[agent2].append((pos, t))
-        child_paths2 = list(current_node.paths)
-        new_path2 = compute_paths_enhanced(agent2, starts, goals, obstacles, child_constraints2, child_paths2)
-        if new_path2:
-            child_paths2[agent2] = new_path2
+        child_constraints2[favored_agent].append((pos, t))
+        child_paths2 = current_node.paths[:]
+        new_path_favored = compute_paths_enhanced(favored_agent, starts, goals, obstacles, child_constraints2,
+                                                  child_paths2)
+        if new_path_favored:
+            child_paths2[favored_agent] = new_path_favored
             heapq.heappush(open_list, CBSNode_Enhanced(child_constraints2, child_paths2))
+
     total_time = time.time() - start_time
     print(f"[Enhanced CBS] No solution after {total_time:.2f}s, Conflicts resolved: {conflict_resolution_steps}")
     return [], conflict_resolution_steps, total_time
 
 
-# -------------------- Visualization --------------------
-def visualize_solution_enhanced(ax, starts, goals, obstacles, solution, title="Enhanced CBS with Tie-Breaking Only"):
+def visualize_solution_enhanced(ax, starts, goals, obstacles, solution, title="Enhanced CBS"):
     """
-    Draw the Enhanced CBS solution on the provided Axes.
+    Visualize the Enhanced CBS solution on a matplotlib Axes.
     """
     ax.set_xlim(-0.5, GRID_SIZE - 0.5)
     ax.set_ylim(-0.5, GRID_SIZE - 0.5)
-    ax.set_aspect('equal')
+    ax.set_aspect("equal")
     ax.set_title(title, fontsize=TITLE_FONT_SIZE)
     for x in range(GRID_SIZE):
         for y in range(GRID_SIZE):
@@ -264,38 +310,34 @@ def visualize_solution_enhanced(ax, starts, goals, obstacles, solution, title="E
             ax.plot(xs, ys, color=AGENT_COLORS[i % len(AGENT_COLORS)], linewidth=PATH_LINE_WIDTH)
 
 
-# -------------------- MAIN CODE (Fixed Scenario) --------------------
+# ===========================
+#  MAIN CODE (Enhanced CBS)
+# ===========================
 if __name__ == "__main__":
-    # Fixed scenario: predetermined starts, goals, and obstacles.
-    starts = [(0, 9), (9, 7), (7, 9), (2, 6), (2, 8)]
-    goals = [(8, 9), (6, 3), (2, 1), (4, 1), (2, 2)]
-    obstacles = [(0, 1), (0, 3), (0, 5), (1, 2), (1, 4),
-                 (1, 9), (2, 4), (2, 5), (3, 5), (3, 6),
-                 (3, 9), (4, 2), (4, 4), (5, 4), (5, 5),
-                 (5, 7), (5, 8), (6, 1), (6, 2), (6, 9),
-                 (7, 0), (7, 1), (7, 8), (8, 1), (8, 2),
-                 (8, 3), (8, 5), (9, 0), (9, 5), (9, 6)]
+    # Generate a random scenario.
+    starts, goals, obstacles = generate_random_scenario(NUM_AGENTS, GRID_SIZE, NUM_OBSTACLES)
 
-    # Reset global counters.
-    A_STAR_CALLS_ENHANCED = 0
+    print("Randomly Generated Scenario:")
+    print("Starts:", starts)
+    print("Goals:", goals)
+    print("Obstacles:", obstacles)
 
-    print("Running Enhanced CBS (Fixed Scenario, Tie-Breaking Only)...")
-    start_time_pcat = time.time()
+    # --- Run Enhanced CBS ---
+    A_STAR_CALLS_ENHANCED = 0  # Reset counter
+    GLOBAL_CACHE_ENHANCED = {}  # Reset cache
+    print("\nRunning Enhanced CBS (Random Scenario)...")
+    start_time_enhanced = time.time()
     sol_enhanced, conflicts_enhanced, runtime_enhanced = cbs_enhanced(starts, goals, obstacles)
-    runtime_enhanced = time.time() - start_time_pcat
+    runtime_enhanced = time.time() - start_time_enhanced
     solved_enhanced = sum(1 for path, goal in zip(sol_enhanced, goals) if path and path[-1] == goal)
     avg_len_enhanced = sum(len(path) for path in sol_enhanced) / len(sol_enhanced) if sol_enhanced else 0
-
-    # Print metrics for Enhanced CBS
     print("\n[Enhanced CBS] Results:")
     print(f"  Agents solved: {solved_enhanced}/{len(starts)}")
     print(f"  Runtime: {runtime_enhanced:.4f}s, Conflicts resolved: {conflicts_enhanced}")
     print(f"  Average Path Length: {avg_len_enhanced:.2f}")
     print(f"  A* Calls (Enhanced): {A_STAR_CALLS_ENHANCED}")
 
-    # Visualize the solution
+    # --- Visualization ---
     fig, ax = plt.subplots(figsize=(8, 8))
-    visualize_solution_enhanced(ax, starts, goals, obstacles, sol_enhanced,
-                                title="Enhanced CBS (Tie-Breaking Only, Fixed Scenario)")
-    plt.tight_layout()
+    visualize_solution_enhanced(ax, starts, goals, obstacles, sol_enhanced, title="Enhanced CBS")
     plt.show()

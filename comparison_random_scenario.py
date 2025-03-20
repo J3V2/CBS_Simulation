@@ -1,10 +1,13 @@
 import heapq
 import time
+import random
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
 # -------------------- Global Parameters --------------------
-GRID_SIZE = 20
+GRID_SIZE = 10  # Grid dimensions
+NUM_AGENTS = 10  # Number of agents
+NUM_OBSTACLES = 0  # Number of obstacles
 
 # Global agent colors for consistent visualization
 AGENT_COLORS = ["red", "orange", "purple", "brown", "magenta",
@@ -26,6 +29,25 @@ A_STAR_CALLS_ORIGINAL = 0  # for Original CBS
 A_STAR_CALLS_ENHANCED = 0  # for Enhanced CBS
 GLOBAL_CACHE_ENHANCED = {}  # for hierarchical caching in Enhanced CBS
 
+
+# ===========================
+#  RANDOM SCENARIO GENERATION
+# ===========================
+def generate_random_scenario(num_agents, grid_size, num_obstacles):
+    """
+    Generate a random scenario with the given number of agents and obstacles.
+    Returns (starts, goals, obstacles) where each is a list of (x, y) tuples.
+    """
+    cells = [(x, y) for x in range(grid_size) for y in range(grid_size)]
+    if len(cells) < 2 * num_agents + num_obstacles:
+        raise ValueError("Too many agents and obstacles for the grid size.")
+    chosen = random.sample(cells, 2 * num_agents + num_obstacles)
+    starts = chosen[:num_agents]
+    goals = chosen[num_agents:2 * num_agents]
+    obstacles = chosen[2 * num_agents:]
+    return starts, goals, obstacles
+
+
 # ===========================
 #  COMMON FUNCTIONS
 # ===========================
@@ -33,12 +55,14 @@ def heuristic(pos, goal):
     """Manhattan distance heuristic."""
     return abs(pos[0] - goal[0]) + abs(pos[1] - goal[1])
 
+
 def get_neighbors(position):
     """Return valid neighbors (up, down, left, right)."""
     directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
     return [(position[0] + dx, position[1] + dy)
             for dx, dy in directions
             if 0 <= position[0] + dx < GRID_SIZE and 0 <= position[1] + dy < GRID_SIZE]
+
 
 def reconstruct_path(came_from, current):
     """Reconstruct the path from A*."""
@@ -48,6 +72,7 @@ def reconstruct_path(came_from, current):
         current = came_from[current]
     path.append(current)
     return path[::-1]
+
 
 def detect_conflicts(paths):
     """
@@ -65,10 +90,11 @@ def detect_conflicts(paths):
                 pos_dict[pos] = i
     return None
 
+
 def build_conflict_avoidance_table(paths):
     """
     Build a Conflict Avoidance Table (CAT): dict mapping time_step -> set of positions.
-    (This function is used in enhanced algorithm.)
+    (This function is used in the enhanced algorithm.)
     """
     cat = {}
     if not paths:
@@ -80,6 +106,7 @@ def build_conflict_avoidance_table(paths):
             if t < len(path):
                 cat[t].add(path[t])
     return cat
+
 
 # ===========================
 #  ORIGINAL CBS
@@ -160,7 +187,8 @@ def cbs_original(starts, goals, obstacles):
         conflict = detect_conflicts(node.paths)
         if conflict is None:
             total_time = time.time() - start_time
-            print(f"\n[Original CBS] Finished: Total time: {total_time:.5f}s, Conflicts resolved: {conflict_resolution_steps}")
+            print(
+                f"\n[Original CBS] Finished: Total time: {total_time:.5f}s, Conflicts resolved: {conflict_resolution_steps}")
             return node.paths, conflict_resolution_steps, total_time
         conflict_resolution_steps += 1
         if time.time() - last_update >= 1:
@@ -190,6 +218,7 @@ def cbs_original(starts, goals, obstacles):
     print(f"\n[Original CBS] Finished: Total time: {total_time:.2f}s, Conflicts resolved: {conflict_resolution_steps}")
     return [], conflict_resolution_steps, total_time
 
+
 def visualize_solution_orig(ax, starts, goals, obstacles, solution, title="Original CBS"):
     """
     Visualize the Original CBS solution on the given Axes.
@@ -208,15 +237,16 @@ def visualize_solution_orig(ax, starts, goals, obstacles, solution, title="Origi
         ax.add_patch(rect)
     for i, (s, g) in enumerate(zip(starts, goals)):
         ax.scatter(s[0], s[1], c="cyan", marker="o", s=START_MARKER_SIZE)
-        ax.text(s[0], s[1], f"S{i+1}", ha="center", va="center", color="black", fontsize=LABEL_FONT_SIZE)
+        ax.text(s[0], s[1], f"S{i + 1}", ha="center", va="center", color="black", fontsize=LABEL_FONT_SIZE)
         ax.scatter(g[0], g[1], c="red", marker="x", s=GOAL_MARKER_SIZE)
         sol = solution[i] if i < len(solution) else []
-        label = f"G{i+1} ✓" if sol and sol[-1] == g else f"G{i+1} x"
+        label = f"G{i + 1} ✓" if sol and sol[-1] == g else f"G{i + 1} x"
         ax.text(g[0], g[1], label, ha="center", va="center", color="black", fontsize=LABEL_FONT_SIZE)
         if sol and len(sol) > 1:
             xs = [p[0] for p in sol]
             ys = [p[1] for p in sol]
             ax.plot(xs, ys, color=AGENT_COLORS[i % len(AGENT_COLORS)], lw=PATH_LINE_WIDTH)
+
 
 # ===========================
 #  ENHANCED CBS (with Prioritization, Advanced Tie Breaking, Hierarchical Caching, and CAT)
@@ -271,6 +301,7 @@ def a_star_enhanced(start, goal, obstacles, constraints, cat, other_agent_paths)
     GLOBAL_CACHE_ENHANCED[key] = []
     return []
 
+
 def count_conflicts(paths):
     """
     Count total number of conflicts across all agents' paths.
@@ -288,6 +319,7 @@ def count_conflicts(paths):
             if count > 1:
                 total_conflicts += count - 1
     return total_conflicts
+
 
 class CBSNode_Enhanced:
     """
@@ -307,6 +339,7 @@ class CBSNode_Enhanced:
             return self.conflict_count < other.conflict_count
         return self.cost < other.cost
 
+
 def compute_paths_enhanced(agent_id, starts, goals, obstacles, constraints, solution_so_far):
     """
     Recompute path for one agent using the CAT.
@@ -321,6 +354,7 @@ def compute_paths_enhanced(agent_id, starts, goals, obstacles, constraints, solu
         cat=cat,
         other_agent_paths=other_paths
     )
+
 
 def cbs_enhanced(starts, goals, obstacles):
     """
@@ -344,7 +378,8 @@ def cbs_enhanced(starts, goals, obstacles):
         conflict = detect_conflicts(current_node.paths)
         if conflict is None:
             total_time = time.time() - start_time
-            print(f"\n[Enhanced CBS] Finished: Total time: {total_time:.3f}s, Conflicts resolved: {conflict_resolution_steps}")
+            print(
+                f"\n[Enhanced CBS] Finished: Total time: {total_time:.3f}s, Conflicts resolved: {conflict_resolution_steps}")
             return current_node.paths, conflict_resolution_steps, total_time
         conflict_resolution_steps += 1
         if time.time() - last_update >= 1:
@@ -371,13 +406,15 @@ def cbs_enhanced(starts, goals, obstacles):
         child_constraints2 = {a: list(c) for a, c in current_node.constraints.items()}
         child_constraints2[favored_agent].append((pos, t))
         child_paths2 = current_node.paths[:]
-        new_path_favored = compute_paths_enhanced(favored_agent, starts, goals, obstacles, child_constraints2, child_paths2)
+        new_path_favored = compute_paths_enhanced(favored_agent, starts, goals, obstacles, child_constraints2,
+                                                  child_paths2)
         if new_path_favored:
             child_paths2[favored_agent] = new_path_favored
             heapq.heappush(open_list, CBSNode_Enhanced(child_constraints2, child_paths2))
     total_time = time.time() - start_time
     print(f"[Enhanced CBS] No solution after {total_time:.2f}s, Conflicts resolved: {conflict_resolution_steps}")
     return [], conflict_resolution_steps, total_time
+
 
 def visualize_solution_enhanced(ax, starts, goals, obstacles, solution, title="Enhanced CBS"):
     """
@@ -397,22 +434,23 @@ def visualize_solution_enhanced(ax, starts, goals, obstacles, solution, title="E
         ax.add_patch(rect)
     for i, (s, g) in enumerate(zip(starts, goals)):
         ax.scatter(s[0], s[1], c="cyan", marker="o", s=START_MARKER_SIZE)
-        ax.text(s[0], s[1], f"S{i+1}", color="black", ha="center", va="center", fontsize=LABEL_FONT_SIZE)
+        ax.text(s[0], s[1], f"S{i + 1}", color="black", ha="center", va="center", fontsize=LABEL_FONT_SIZE)
         ax.scatter(g[0], g[1], c="red", marker="x", s=GOAL_MARKER_SIZE)
         sol = solution[i] if i < len(solution) else []
-        label = f"G{i+1} ✓" if sol and sol[-1] == g else f"G{i+1} x"
+        label = f"G{i + 1} ✓" if sol and sol[-1] == g else f"G{i + 1} x"
         ax.text(g[0], g[1], label, color="black", ha="center", va="center", fontsize=LABEL_FONT_SIZE)
         if sol:
             xs = [p[0] for p in sol]
             ys = [p[1] for p in sol]
             ax.plot(xs, ys, color=AGENT_COLORS[i % len(AGENT_COLORS)], linewidth=PATH_LINE_WIDTH)
 
+
 # ===========================
 #  SIDE-BY-SIDE VISUALIZATION FUNCTION
 # ===========================
 def visualize_solutions_side_by_side(starts, goals, obstacles, sol_orig, sol_enhanced,
-                                     title1="Original CBS (Fixed Scenario)",
-                                     title2="Enhanced CBS (Fixed Scenario)"):
+                                     title1="Original CBS",
+                                     title2="Enhanced CBS"):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
     visualize_solution_orig(ax1, starts, goals, obstacles, sol_orig, title=title1)
     visualize_solution_enhanced(ax2, starts, goals, obstacles, sol_enhanced, title=title2)
@@ -420,41 +458,22 @@ def visualize_solutions_side_by_side(starts, goals, obstacles, sol_orig, sol_enh
     plt.tight_layout()
     plt.show()
 
+
 # ===========================
-#  MAIN CODE (Fixed Scenario)
+#  MAIN CODE (Random Scenario)
 # ===========================
 if __name__ == "__main__":
-    # Fixed scenario: predetermined starts, goals, and obstacles.
-    starts = [
-            (1, 8), (8, 0), (19, 8), (6, 11), (7, 8),
-            (3, 18), (8, 9), (3, 19), (12, 16), (19, 17),
-            (2, 11), (8, 5), (13, 19), (8, 11), (4, 19),
-            (4, 17), (6, 6), (9, 0), (12, 0), (11, 16),
-            (6, 1), (9, 15), (12, 9), (1, 6), (4, 10),
-            (0, 1), (5, 5), (19, 3), (1, 10), (12, 17)
-    ]
+    # Generate a random scenario.
+    starts, goals, obstacles = generate_random_scenario(NUM_AGENTS, GRID_SIZE, NUM_OBSTACLES)
 
-    goals = [
-            (10, 8), (16, 13), (14, 2), (11, 6), (13, 12),
-            (16, 16), (13, 14), (14, 3), (14, 18), (15, 2),
-            (6, 13), (10, 14), (9, 18), (13, 5), (5, 11),
-            (11, 19), (2, 0), (18, 5), (2, 2), (13, 7),
-            (6, 12), (15, 4), (9, 6), (9, 13), (1, 16),
-            (4, 4), (13, 16), (12, 18), (13, 0), (9, 3)
-    ]
-
-    obstacles = [
-                (0, 2), (0, 12), (1, 4), (1, 15), (2, 1),
-                (2, 9), (3, 7), (4, 3), (4, 8), (4, 11),
-                (5, 0), (5, 7), (7, 0), (7, 15), (7, 17),
-                (8, 4), (8, 12), (8, 15), (10, 0), (10, 12),
-                (10, 19), (12, 11), (12, 12), (13, 6), (13, 17),
-                (16, 15), (16, 17), (18, 0), (18, 16), (19, 1)
-    ]
+    print("Randomly Generated Scenario:")
+    print("Starts:", starts)
+    print("Goals:", goals)
+    print("Obstacles:", obstacles)
 
     # --- Run Original CBS ---
     A_STAR_CALLS_ORIGINAL = 0
-    print("Running Original CBS (Fixed Scenario)...")
+    print("\nRunning Original CBS (Random Scenario)...")
     start_time_orig = time.time()
     sol_orig, conflicts_orig, runtime_orig = cbs_original(starts, goals, obstacles)
     runtime_orig = time.time() - start_time_orig
@@ -469,7 +488,7 @@ if __name__ == "__main__":
     # --- Run Enhanced CBS ---
     A_STAR_CALLS_ENHANCED = 0
     GLOBAL_CACHE_ENHANCED = {}
-    print("\nRunning Enhanced CBS (Fixed Scenario)...")
+    print("\nRunning Enhanced CBS (Random Scenario)...")
     start_time_enhanced = time.time()
     sol_enhanced, conflicts_enhanced, runtime_enhanced = cbs_enhanced(starts, goals, obstacles)
     runtime_enhanced = time.time() - start_time_enhanced
