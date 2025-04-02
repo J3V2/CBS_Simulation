@@ -352,7 +352,7 @@ def cbs_enhanced(starts, goals, obstacles):
             print(f"[Enhanced CBS] Running... Elapsed: {elapsed:.2f}s, Conflicts resolved: {conflict_resolution_steps}")
             last_update = time.time()
         agent1, agent2, pos, t = conflict
-        # Advanced tie-breaking: favor the agent whose goal is closer to the conflict.
+        # Advanced tie-breaking
         if heuristic(pos, goals[agent1]) <= heuristic(pos, goals[agent2]):
             favored_agent, other_agent = agent1, agent2
         else:

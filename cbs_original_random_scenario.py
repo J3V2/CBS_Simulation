@@ -5,8 +5,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
 # -------------------- Global Parameters --------------------
-GRID_SIZE = 10  # Grid dimensions
-NUM_AGENTS = 10  # Number of agents
+GRID_SIZE = 25  # Grid dimensions
+NUM_AGENTS = 0  # Number of agents
 NUM_OBSTACLES = 0  # Number of obstacles (set to 0 for a free grid)
 
 # Global agent colors for visualization

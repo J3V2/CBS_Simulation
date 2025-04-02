@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
 # -------------------- Global Parameters --------------------
-GRID_SIZE = 10  # Grid dimensions
-NUM_AGENTS = 10  # Number of agents
-NUM_OBSTACLES = 0  # Number of obstacles (set to 0 for a free grid)
+GRID_SIZE = 20  # Grid dimensions
+NUM_AGENTS = 35  # Number of agents
+NUM_OBSTACLES = 25  # Number of obstacles (set to 0 for a free grid)
 
 # Global agent colors for visualization
 AGENT_COLORS = [
@@ -251,7 +251,7 @@ def cbs_enhanced(starts, goals, obstacles):
             last_update = time.time()
         agent1, agent2, pos, t = conflict
 
-        # Advanced tie-breaking: favor the agent whose goal is closer to the conflict.
+        # Advanced tie-breaking
         if heuristic(pos, goals[agent1]) <= heuristic(pos, goals[agent2]):
             favored_agent, other_agent = agent1, agent2
         else:
